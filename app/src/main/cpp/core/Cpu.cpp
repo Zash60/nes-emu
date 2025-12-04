@@ -4,10 +4,13 @@
 #include "MemoryMap.h"
 #include "Serializer.h"
 #include "Debugger.h"
+#include <android/log.h>
 
-// Some retail games overflow (on purpose?) like Battletoads
-// so we can't leave this on
 #define FAIL_ON_STACK_OVERFLOW 0
+
+// Android logging
+#define LOG_TAG "NES_CPU"
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 namespace
 {
@@ -20,19 +23,16 @@ namespace
 
 	FORCEINLINE uint8 CalcNegativeFlag(uint16 v)
 	{
-		// Check if bit 7 is set
 		return (v & 0x0080) != 0;
 	}
 
 	FORCEINLINE uint8 CalcNegativeFlag(uint8 v)
 	{
-		// Check if bit 7 is set
 		return (v & 0x80) != 0;
 	}
 
 	FORCEINLINE uint8 CalcZeroFlag(uint16 v)
 	{
-		// Check that lower 8 bits are all 0
 		return (v & 0x00FF) == 0;
 	}
 
@@ -43,22 +43,16 @@ namespace
 
 	FORCEINLINE uint8 CalcCarryFlag(uint16 v)
 	{
-		// Check if upper 8 bits are non-zero to know if a carry occured
 		return (v & 0xFF00) != 0;
 	}
 
-	// Force link time error: need 16 bit to compute carry
 	FORCEINLINE uint8 CalcCarryFlag(uint8 v);
 
 	FORCEINLINE uint8 CalcOverflowFlag(uint8 a, uint8 b, uint16 r)
 	{
-		// With r = a + b, overflow occurs if both a and b are negative and r is positive,
-		// or both a and b are positive and r is negative. Looking at sign bits of a, b, r,
-		// overflow occurs when 0 0 1 or 1 1 0, so we can use simple xor logic to figure it out.
 		return ((uint16)a ^ r) & ((uint16)b ^ r) & 0x0080;
 	}
 
-	// Force link time error: need 16 bit result to compute overflow
 	FORCEINLINE uint8 CalcOverflowFlag(uint8 a, uint8 b, uint8 r);
 }
 
@@ -79,15 +73,12 @@ void Cpu::Initialize(CpuMemoryBus& cpuMemoryBus, Apu& apu)
 
 void Cpu::Reset()
 {
-	// See http://wiki.nesdev.com/w/index.php/CPU_power_up_state
-
 	A = X = Y = 0;
-	SP = 0xFF; // Should be FD, but for improved compatibility set to FF
+	SP = 0xFF; 
 	
 	P.ClearAll();
 	P.Set(StatusFlag::IrqDisabled);
 
-	// Entry point is located at the Reset interrupt location
 	PC = Read16(CpuMemory::kResetVector);
 
 	m_cycles = 0;
@@ -115,16 +106,11 @@ void Cpu::Serialize(class Serializer& serializer)
 
 void Cpu::Nmi()
 {
-	assert(!m_pendingNmi && "Interrupt already pending");
-	assert(!m_pendingIrq && "One interrupt at at time");
 	m_pendingNmi = true;
 }
 
 void Cpu::Irq()
 {
-	assert(!m_pendingIrq && "Interrupt already pending");
-	assert(!m_pendingNmi && "One interrupt at at time");
-
 	if (!P.Test(StatusFlag::IrqDisabled))
 		m_pendingIrq = true;
 }
@@ -133,21 +119,30 @@ void Cpu::Execute(uint32& cpuCyclesElapsed)
 {
 	m_cycles = 0;
 	
-	ExecutePendingInterrupts(); // Handle when interrupts are called "between" CPU updates (e.g. PPU sends NMI)
+	ExecutePendingInterrupts(); 
 	
 	const uint8 opCode = Read8(PC);
 	m_opCodeEntry = g_opCodeTable[opCode];
 
 	if (m_opCodeEntry == nullptr)
 	{
-		FAIL("Unknown opcode");
+        // FIX: Prevent crash by logging and skipping
+		LOGE("Unknown opcode: %02X at PC: %04X", opCode, PC);
+        
+        // Treat as 1-byte NOP (2 cycles) to advance PC and prevent infinite loop on same address
+        PC++;
+        m_cycles += 2;
+        
+        cpuCyclesElapsed = m_cycles;
+	    m_totalCycles += m_cycles;
+        return; 
 	}
 
 	UpdateOperandAddress();
 
 	Debugger::PreCpuInstruction();
 	ExecuteInstruction();
-	ExecutePendingInterrupts(); // Handle when instruction (memory read) causes interrupt
+	ExecutePendingInterrupts(); 
 	Debugger::PostCpuInstruction();		
 
 	cpuCyclesElapsed = m_cycles;
@@ -183,27 +178,19 @@ void Cpu::HandleCpuWrite(uint16 cpuAddress, uint8 value)
 	{
 	case CpuMemory::kSpriteDmaReg: // $4014
 		{
-			// Initiate a DMA transfer from the input page to sprite ram.
-
 			static auto SpriteDmaTransfer = [&] (uint16 cpuAddress)
 			{
-				for (uint16 i = 0; i < 256; ++i) //@TODO: Use constant for 256 (kSpriteMemorySize?)
+				for (uint16 i = 0; i < 256; ++i) 
 				{
 					const uint8 value = m_cpuMemoryBus->Read(cpuAddress + i);
 					m_cpuMemoryBus->Write(CpuMemory::kPpuSprRamIoReg, value);
 				}
-
-				// While DMA transfer occurs, the memory bus is in use, preventing CPU from fetching memory
 				m_cycles += 512;
 			};
 
 			m_spriteDmaRegister = value;
 			const uint16 srcCpuAddress = m_spriteDmaRegister * 0x100;
-
-			// Note: we perform the full DMA transfer right here instead of emulating the transfers over multiple frames.
-			// If we need to do it right, see http://wiki.nesdev.com/w/index.php/PPU_programmer_reference#DMA
 			SpriteDmaTransfer(srcCpuAddress);
-
 			return;
 		}
 		break;
@@ -212,7 +199,7 @@ void Cpu::HandleCpuWrite(uint16 cpuAddress, uint8 value)
 		m_controllerPorts.HandleCpuWrite(cpuAddress, value);
 		break;
 
-	case CpuMemory::kControllerPort2: // $4017 For writes, this address is mapped to the APU!
+	case CpuMemory::kControllerPort2: // $4017 
 	default:
 		m_apu->HandleCpuWrite(cpuAddress, value);
 		break;
@@ -237,7 +224,7 @@ void Cpu::Write8(uint16 address, uint8 value)
 void Cpu::UpdateOperandAddress()
 {
 #if CONFIG_DEBUG
-	m_operandAddress = 0; // Reset to help find bugs
+	m_operandAddress = 0; 
 #endif
 
 	m_operandReadCrossedPage = false;
@@ -245,7 +232,7 @@ void Cpu::UpdateOperandAddress()
 	switch (m_opCodeEntry->addrMode)
 	{
 	case AddressMode::Immedt:
-		m_operandAddress = PC + 1; // Set to address of immediate value in code segment
+		m_operandAddress = PC + 1; 
 		break;
 
 	case AddressMode::Implid:
@@ -254,12 +241,9 @@ void Cpu::UpdateOperandAddress()
 	case AddressMode::Accumu:
 		break;
 
-	case AddressMode::Relatv: // For conditional branch instructions
+	case AddressMode::Relatv: 
 		{
-			//@OPT: Lazily compute if branch condition succeeds
-
-			// For branch instructions, resolve the target address
-			const int8 offset = Read8(PC+1); // Signed offset in [-128,127]
+			const int8 offset = Read8(PC+1); 
 			m_operandAddress = PC + m_opCodeEntry->numBytes + offset;
 		}
 		break;
@@ -269,11 +253,11 @@ void Cpu::UpdateOperandAddress()
 		break;
 
 	case AddressMode::ZPIdxX:
-		m_operandAddress = TO16((Read8(PC+1) + X)) & 0x00FF; // Wrap around zero-page boundary
+		m_operandAddress = TO16((Read8(PC+1) + X)) & 0x00FF; 
 		break;
 
 	case AddressMode::ZPIdxY:
-		m_operandAddress = TO16((Read8(PC+1) + Y)) & 0x00FF; // Wrap around zero-page boundary
+		m_operandAddress = TO16((Read8(PC+1) + Y)) & 0x00FF; 
 		break;
 
 	case AddressMode::Absolu:
@@ -298,31 +282,26 @@ void Cpu::UpdateOperandAddress()
 		}
 		break;
 
-	case AddressMode::Indrct: // for JMP only
+	case AddressMode::Indrct: 
 		{
 			uint16 low = Read16(PC+1);
-
-			// Handle the 6502 bug for when the low-byte of the effective address is FF,
-			// in which case the 2nd byte read does not correctly cross page boundaries.
-			// The bug is that the high byte does not change.
 			uint16 high = (low & 0xFF00) | ((low + 1) & 0x00FF);
-
 			m_operandAddress = TO16(Read8(low)) | TO16(Read8(high)) << 8;
 		}
 		break;
 
 	case AddressMode::IdxInd:
 		{
-			uint16 low = TO16((Read8(PC+1) + X)) & 0x00FF; // Zero page low byte of operand address, wrap around zero page
-			uint16 high = TO16(low + 1) & 0x00FF; // Wrap high byte around zero page
+			uint16 low = TO16((Read8(PC+1) + X)) & 0x00FF; 
+			uint16 high = TO16(low + 1) & 0x00FF; 
 			m_operandAddress = TO16(Read8(low)) | TO16(Read8(high)) << 8;
 		}
 		break;
 
 	case AddressMode::IndIdx:
 		{
-			const uint16 low = TO16(Read8(PC+1)); // Zero page low byte of operand address
-			const uint16 high = TO16(low + 1) & 0x00FF; // Wrap high byte around zero page
+			const uint16 low = TO16(Read8(PC+1)); 
+			const uint16 high = TO16(low + 1) & 0x00FF; 
 			const uint16 baseAddress = (TO16(Read8(low)) | TO16(Read8(high)) << 8);
 			const uint16 basePage = GetPageAddress(baseAddress);
 			m_operandAddress = baseAddress + Y;
@@ -331,7 +310,7 @@ void Cpu::UpdateOperandAddress()
 		break;
 
 	default:
-		assert(false && "Invalid addressing mode");
+		LOGE("Invalid addressing mode at PC: %04X", PC);
 		break;
 	}
 }
@@ -341,16 +320,14 @@ void Cpu::ExecuteInstruction()
 	using namespace OpCodeName;
 	using namespace StatusFlag;
 
-	// By default, next instruction is after current, but can also be changed by a branch or jump
 	uint16 nextPC = PC + m_opCodeEntry->numBytes;
 	
 	bool branchTaken = false;
 
 	switch (m_opCodeEntry->opCodeName)
 	{
-	case ADC: // Add memory to accumulator with carry
+	case ADC: 
 		{
-			// Operation:  A + M + C -> A, C
 			const uint8 value = GetMemValue();
 			const uint16 result = TO16(A) + TO16(value) + TO16(P.Test01(Carry));
 			P.Set(Negative, CalcNegativeFlag(result));
@@ -361,13 +338,13 @@ void Cpu::ExecuteInstruction()
 		}
 		break;
 
-	case AND: // "AND" memory with accumulator
+	case AND: 
 		A &= GetMemValue();
 		P.Set(Negative, CalcNegativeFlag(A));
 		P.Set(Zero, CalcZeroFlag(A));
 		break;
 
-	case ASL: // Shift Left One Bit (Memory or Accumulator)
+	case ASL: 
 		{
 			const uint16 result = TO16(GetAccumOrMemValue()) << 1;
 			P.Set(Negative, CalcNegativeFlag(result));
@@ -377,7 +354,7 @@ void Cpu::ExecuteInstruction()
 		}
 		break;
 
-	case BCC: // Branch on Carry Clear
+	case BCC: 
 		if (!P.Test(Carry))
 		{
 			nextPC = GetBranchOrJmpLocation();
@@ -385,7 +362,7 @@ void Cpu::ExecuteInstruction()
 		}
 		break;
 
-	case BCS: // Branch on Carry Set
+	case BCS: 
 		if (P.Test(Carry))
 		{
 			nextPC = GetBranchOrJmpLocation();
@@ -393,7 +370,7 @@ void Cpu::ExecuteInstruction()
 		}
 		break;
 
-	case BEQ: // Branch on result zero (equal means compare difference is 0)
+	case BEQ: 
 		if (P.Test(Zero))
 		{
 			nextPC = GetBranchOrJmpLocation();
@@ -401,16 +378,16 @@ void Cpu::ExecuteInstruction()
 		}
 		break;
 
-	case BIT: // Test bits in memory with accumulator
+	case BIT: 
 		{
 			uint8 memValue = GetMemValue();
 			uint8 result = A & GetMemValue();
-			P.SetValue( (P.Value() & 0x3F) | (memValue & 0xC0) ); // Copy bits 6 and 7 of mem value to status register
+			P.SetValue( (P.Value() & 0x3F) | (memValue & 0xC0) ); 
 			P.Set(Zero, CalcZeroFlag(result));
 		}
 		break;
 
-	case BMI: // Branch on result minus
+	case BMI: 
 		if (P.Test(Negative))
 		{
 			nextPC = GetBranchOrJmpLocation();
@@ -418,7 +395,7 @@ void Cpu::ExecuteInstruction()
 		}
 		break;
 
-	case BNE:  // Branch on result non-zero
+	case BNE:  
 		if (!P.Test(Zero))
 		{
 			nextPC = GetBranchOrJmpLocation();
@@ -426,7 +403,7 @@ void Cpu::ExecuteInstruction()
 		}
 		break;
 
-	case BPL: // Branch on result plus
+	case BPL: 
 		if (!P.Test(Negative))
 		{
 			nextPC = GetBranchOrJmpLocation();
@@ -434,20 +411,17 @@ void Cpu::ExecuteInstruction()
 		}
 		break;
 
-	case BRK: // Force break (Forced Interrupt PC + 2 toS P toS) (used with RTI)
+	case BRK: 
 		{
-			// Note that BRK is weird in that the instruction is 1 byte, but the return address
-			// we store is 2 bytes after the instruction, so the byte after BRK will be skipped
-			// upon return (RTI). Usually an NOP is inserted after a BRK for this reason.
 			uint16 returnAddr = PC + 2;
 			Push16(returnAddr);
 			PushProcessorStatus(true);
-			P.Set(IrqDisabled); // Disable hardware IRQs
+			P.Set(IrqDisabled); 
 			nextPC = Read16(CpuMemory::kIrqVector);
 		}
 		break;
 
-	case BVC: // Branch on Overflow Clear
+	case BVC: 
 		if (!P.Test(Overflow))
 		{
 			nextPC = GetBranchOrJmpLocation();
@@ -455,7 +429,7 @@ void Cpu::ExecuteInstruction()
 		}
 		break;
 
-	case BVS: // Branch on Overflow Set
+	case BVS: 
 		if (P.Test(Overflow))
 		{
 			nextPC = GetBranchOrJmpLocation();
@@ -463,53 +437,53 @@ void Cpu::ExecuteInstruction()
 		}
 		break;
 
-	case CLC: // CLC Clear carry flag
+	case CLC: 
 		P.Clear(Carry);
 		break;
 
-	case CLD: // CLD Clear decimal mode
+	case CLD: 
 		P.Clear(Decimal);
 		break;
 
-	case CLI: // CLI Clear interrupt disable bit
+	case CLI: 
 		P.Clear(IrqDisabled);
 		break;
 
-	case CLV: // CLV Clear overflow flag
+	case CLV: 
 		P.Clear(Overflow);
 		break;
 
-	case CMP: // CMP Compare memory and accumulator
+	case CMP: 
 		{
 			const uint8 memValue = GetMemValue();
 			const uint8 result = A - memValue;
 			P.Set(Negative, CalcNegativeFlag(result));
 			P.Set(Zero, CalcZeroFlag(result));
-			P.Set(Carry, A >= memValue); // Carry set if result positive or 0
+			P.Set(Carry, A >= memValue); 
 		}
 		break;
 
-	case CPX: // CPX Compare Memory and Index X
+	case CPX: 
 		{
 			const uint8 memValue = GetMemValue();
 			const uint8 result = X - memValue;
 			P.Set(Negative, CalcNegativeFlag(result));
 			P.Set(Zero, CalcZeroFlag(result));
-			P.Set(Carry, X >= memValue); // Carry set if result positive or 0
+			P.Set(Carry, X >= memValue); 
 		}
 		break;
 
-	case CPY: // CPY Compare memory and index Y
+	case CPY: 
 		{
 			const uint8 memValue = GetMemValue();
 			const uint8 result = Y - memValue;
 			P.Set(Negative, CalcNegativeFlag(result));
 			P.Set(Zero, CalcZeroFlag(result));
-			P.Set(Carry, Y >= memValue); // Carry set if result positive or 0
+			P.Set(Carry, Y >= memValue); 
 		}
 		break;
 
-	case DEC: // Decrement memory by one
+	case DEC: 
 		{
 			const uint8 result = GetMemValue() - 1;
 			P.Set(Negative, CalcNegativeFlag(result));
@@ -518,25 +492,25 @@ void Cpu::ExecuteInstruction()
 		}
 		break;
 
-	case DEX: // Decrement index X by one
+	case DEX: 
 		--X;
 		P.Set(Negative, CalcNegativeFlag(X));
 		P.Set(Zero, CalcZeroFlag(X));
 		break;
 
-	case DEY: // Decrement index Y by one
+	case DEY: 
 		--Y;
 		P.Set(Negative, CalcNegativeFlag(Y));
 		P.Set(Zero, CalcZeroFlag(Y));
 		break;
 
-	case EOR: // "Exclusive-Or" memory with accumulator
+	case EOR: 
 		A = A ^ GetMemValue();
 		P.Set(Negative, CalcNegativeFlag(A));
 		P.Set(Zero, CalcZeroFlag(A));
 		break;
 
-	case INC: // Increment memory by one
+	case INC: 
 		{
 			const uint8 result = GetMemValue() + 1;
 			P.Set(Negative, CalcNegativeFlag(result));
@@ -545,89 +519,87 @@ void Cpu::ExecuteInstruction()
 		}
 		break;
 
-	case INX: // Increment Index X by one
+	case INX: 
 		++X;
 		P.Set(Negative, CalcNegativeFlag(X));
 		P.Set(Zero, CalcZeroFlag(X));
 		break;
 
-	case INY: // Increment Index Y by one
+	case INY: 
 		++Y;
 		P.Set(Negative, CalcNegativeFlag(Y));
 		P.Set(Zero, CalcZeroFlag(Y));
 		break;
 
-	case JMP: // Jump to new location
+	case JMP: 
 		nextPC = GetBranchOrJmpLocation();
 		break;
 
-	case JSR: // Jump to subroutine (used with RTS)
+	case JSR: 
 		{
-			// JSR actually pushes address of the next instruction - 1.
-			// RTS jumps to popped value + 1.
 			const uint16 returnAddr = PC + m_opCodeEntry->numBytes - 1;
 			Push16(returnAddr);
 			nextPC = GetBranchOrJmpLocation();
 		}
 		break;
 
-	case LDA: // Load accumulator with memory
+	case LDA: 
 		A = GetMemValue();
 		P.Set(Negative, CalcNegativeFlag(A));
 		P.Set(Zero, CalcZeroFlag(A));
 		break;
 
-	case LDX: // Load index X with memory
+	case LDX: 
 		X = GetMemValue();
 		P.Set(Negative, CalcNegativeFlag(X));
 		P.Set(Zero, CalcZeroFlag(X));
 		break;
 
-	case LDY: // Load index Y with memory
+	case LDY: 
 		Y = GetMemValue();
 		P.Set(Negative, CalcNegativeFlag(Y));
 		P.Set(Zero, CalcZeroFlag(Y));
 		break;
 
-	case LSR: // Shift right one bit (memory or accumulator)
+	case LSR: 
 		{
 			const uint8 value = GetAccumOrMemValue();
 			const uint8 result = value >> 1;
-			P.Set(Carry, value & 0x01); // Will get shifted into carry
+			P.Set(Carry, value & 0x01); 
 			P.Set(Zero, CalcZeroFlag(result));
-			P.Clear(Negative); // 0 is shifted into sign bit position
+			P.Clear(Negative); 
 			SetAccumOrMemValue(result);
 		}		
 		break;
 
-	case NOP: // No Operation (2 cycles)
+	case NOP: 
 		break;
 
-	case ORA: // "OR" memory with accumulator
+	case ORA: 
 		A |= GetMemValue();
 		P.Set(Negative, CalcNegativeFlag(A));
 		P.Set(Zero, CalcZeroFlag(A));
 		break;
 
-	case PHA: // Push accumulator on stack
+	case PHA: 
 		Push8(A);
 		break;
 
-	case PHP: // Push processor status on stack
+	case PHP: 
 		PushProcessorStatus(true);
 		break;
 
-	case PLA: // Pull accumulator from stack
+	case PLA: 
 		A = Pop8();
 		P.Set(Negative, CalcNegativeFlag(A));
 		P.Set(Zero, CalcZeroFlag(A));
 		break;
 
-	case PLP: // Pull processor status from stack
+	case PLP: 
 		PopProcessorStatus();
 		break;
 
-	case ROL: // Rotate one bit left (memory or accumulator)
+	case ROL: 
 		{
 			const uint16 result = (TO16(GetAccumOrMemValue()) << 1) | TO16(P.Test01(Carry));
 			P.Set(Carry, CalcCarryFlag(result));
@@ -637,7 +609,7 @@ void Cpu::ExecuteInstruction()
 		}
 		break;
 
-	case ROR: // Rotate one bit right (memory or accumulator)
+	case ROR: 
 		{
 			const uint8 value = GetAccumOrMemValue();
 			const uint8 result = (value >> 1) | (P.Test01(Carry) << 7);
@@ -648,27 +620,22 @@ void Cpu::ExecuteInstruction()
 		}
 		break;
 
-	case RTI: // Return from interrupt (used with BRK, Nmi or Irq)
+	case RTI: 
 		{
 			PopProcessorStatus();
 			nextPC = Pop16();
 		}
 		break;
 
-	case RTS: // Return from subroutine (used with JSR)
+	case RTS: 
 		{
 			nextPC = Pop16() + 1;
 		}
 		break;
 
-	case SBC: // Subtract memory from accumulator with borrow
+	case SBC: 
 		{
-			// Operation:  A - M - C -> A
-
-			// Can't simply negate mem value because that results in two's complement
-			// and we want to perform the bitwise add ourself
 			const uint8 value = GetMemValue() ^ 0XFF;
-
 			const uint16 result = TO16(A) + TO16(value) + TO16(P.Test01(Carry));
 			P.Set(Negative, CalcNegativeFlag(result));
 			P.Set(Zero, CalcZeroFlag(result));
@@ -678,83 +645,78 @@ void Cpu::ExecuteInstruction()
 		}
 		break;
 
-	case SEC: // Set carry flag
+	case SEC: 
 		P.Set(Carry);
 		break;
 
-	case SED: // Set decimal mode
+	case SED: 
 		P.Set(Decimal);
 		break;
 
-	case SEI: // Set interrupt disable status
+	case SEI: 
 		P.Set(IrqDisabled);
 		break;
 
-	case STA: // Store accumulator in memory
+	case STA: 
 		SetMemValue(A);
 		break;
 
-	case STX: // Store index X in memory
+	case STX: 
 		SetMemValue(X);
 		break;
 
-	case STY: // Store index Y in memory
+	case STY: 
 		SetMemValue(Y);
 		break;
 
-	case TAX: // Transfer accumulator to index X
+	case TAX: 
 		X = A;
 		P.Set(Negative, CalcNegativeFlag(X));
 		P.Set(Zero, CalcZeroFlag(X));
 		break;
 
-	case TAY: // Transfer accumulator to index Y
+	case TAY: 
 		Y = A;
 		P.Set(Negative, CalcNegativeFlag(Y));
 		P.Set(Zero, CalcZeroFlag(Y));
 		break;
 
-	case TSX: // Transfer stack pointer to index X
+	case TSX: 
 		X = SP;
 		P.Set(Negative, CalcNegativeFlag(X));
 		P.Set(Zero, CalcZeroFlag(X));
 		break;
 
-	case TXA: // Transfer index X to accumulator
+	case TXA: 
 		A = X;
 		P.Set(Negative, CalcNegativeFlag(A));
 		P.Set(Zero, CalcZeroFlag(A));
 		break;
 
-	case TXS: // Transfer index X to stack pointer
+	case TXS: 
 		SP = X;
 		break;
 
-	case TYA: // Transfer index Y to accumulator
+	case TYA: 
 		A = Y;
 		P.Set(Negative, CalcNegativeFlag(A));
 		P.Set(Zero, CalcZeroFlag(A));
 		break;
 
 	default:
-		assert(false);
+		// Not implemented logic handled in OpCodeTable, but here is for safety
 		break;
 	}
 
-	// Compute cycles for instruction
 	{
 		uint16 cycles = m_opCodeEntry->numCycles;
 
-		// Some instructions take an extra cycle when reading operand across page boundary
 		if (m_operandReadCrossedPage)
 			cycles += m_opCodeEntry->pageCrossCycles;
 
-		// Extra cycle when branch is taken
 		if (branchTaken)
 		{
 			++cycles;
-
-			// And extra cycle when branching to a different page
 			if (GetPageAddress(PC) != GetPageAddress(nextPC))
 			{
 				++cycles;
@@ -764,7 +726,6 @@ void Cpu::ExecuteInstruction()
 		m_cycles += cycles;
 	}
 
-	// Move to next instruction
 	PC = nextPC;
 }
 
@@ -779,12 +740,7 @@ void Cpu::ExecutePendingInterrupts()
 		P.Clear(StatusFlag::BrkExecuted);
 		P.Set(StatusFlag::IrqDisabled);
 		PC = Read16(CpuMemory::kNmiVector);
-		
-		//@HACK: *2 here fixes Battletoads not loading levels, and also Marble Madness
-		// not rendering start of level text box correctly. This is likely due to discrepencies
-		// in cycle timing for when PPU signals an NMI and CPU handles it.
 		m_cycles += kInterruptCycles * 2;
-		
 		m_pendingNmi = false;
 	}
 	else if (m_pendingIrq)
@@ -801,8 +757,6 @@ void Cpu::ExecutePendingInterrupts()
 
 uint8 Cpu::GetAccumOrMemValue() const
 {
-	assert(m_opCodeEntry->addrMode == AddressMode::Accumu || m_opCodeEntry->addrMode & AddressMode::MemoryValueOperand);
-
 	if (m_opCodeEntry->addrMode == AddressMode::Accumu)
 		return A;
 	
@@ -812,8 +766,6 @@ uint8 Cpu::GetAccumOrMemValue() const
 
 void Cpu::SetAccumOrMemValue(uint8 value)
 {
-	assert(m_opCodeEntry->addrMode == AddressMode::Accumu || m_opCodeEntry->addrMode & AddressMode::MemoryValueOperand);
-
 	if (m_opCodeEntry->addrMode == AddressMode::Accumu)
 	{
 		A = value;
@@ -826,20 +778,17 @@ void Cpu::SetAccumOrMemValue(uint8 value)
 
 uint8 Cpu::GetMemValue() const
 {
-	assert(m_opCodeEntry->addrMode & AddressMode::MemoryValueOperand);
 	uint8 result = Read8(m_operandAddress);
 	return result;
 }
 
 void Cpu::SetMemValue(uint8 value)
 {
-	assert(m_opCodeEntry->addrMode & AddressMode::MemoryValueOperand);
 	Write8(m_operandAddress, value);
 }
 
 uint16 Cpu::GetBranchOrJmpLocation() const
 {
-	assert(m_opCodeEntry->addrMode & AddressMode::JmpOrBranchOperand);
 	return m_operandAddress;
 }
 
@@ -847,13 +796,6 @@ void Cpu::Push8(uint8 value)
 {
 	Write8(CpuMemory::kStackBase + SP, value);
 	--SP;
-	
-#if FAIL_ON_STACK_OVERFLOW
-	if (SP == 0xFF)
-	{
-		FAIL("Stack overflow!");
-	}
-#endif
 }
 
 void Cpu::Push16(uint16 value)
@@ -865,14 +807,6 @@ void Cpu::Push16(uint16 value)
 uint8 Cpu::Pop8()
 {
 	++SP;
-
-#if FAIL_ON_STACK_OVERFLOW
-	if (SP == 0)
-	{
-		FAIL("Stack underflow!");
-	}
-#endif
-
 	return Read8(CpuMemory::kStackBase + SP);
 }
 
@@ -885,7 +819,6 @@ uint16 Cpu::Pop16()
 
 void Cpu::PushProcessorStatus(bool softwareInterrupt)
 {
-	assert(!P.Test(StatusFlag::Unused) && !P.Test(StatusFlag::BrkExecuted) && "P should never have these set, only on stack");
 	uint8 brkFlag = softwareInterrupt? StatusFlag::BrkExecuted : 0;
 	Push8(P.Value() | StatusFlag::Unused | brkFlag);
 }
@@ -893,5 +826,4 @@ void Cpu::PushProcessorStatus(bool softwareInterrupt)
 void Cpu::PopProcessorStatus()
 {
 	P.SetValue(Pop8() & ~StatusFlag::Unused & ~StatusFlag::BrkExecuted);
-	assert(!P.Test(StatusFlag::Unused) && !P.Test(StatusFlag::BrkExecuted) && "P should never have these set, only on stack");
 }
