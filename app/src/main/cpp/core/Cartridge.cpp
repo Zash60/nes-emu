@@ -35,16 +35,20 @@ void Cartridge::Serialize(class Serializer& serializer)
 {
 	SERIALIZE(m_cartNameTableMirroring);
 	
-	if (m_mapper->CanWritePrgMemory())
-		SERIALIZE_BUFFER(m_prgBanks.data(), m_mapper->PrgMemorySize());
+    // Proteção na serialização também
+    if (m_mapper) 
+    {
+        if (m_mapper->CanWritePrgMemory())
+            SERIALIZE_BUFFER(m_prgBanks.data(), m_mapper->PrgMemorySize());
 
-	if (m_mapper->CanWriteChrMemory())
-		SERIALIZE_BUFFER(m_chrBanks.data(), m_mapper->ChrMemorySize());
+        if (m_mapper->CanWriteChrMemory())
+            SERIALIZE_BUFFER(m_chrBanks.data(), m_mapper->ChrMemorySize());
 
-	if (m_mapper->SavMemorySize() > 0)
-		SERIALIZE_BUFFER(m_savBanks.data(), m_mapper->SavMemorySize());
-	
-	serializer.SerializeObject(*m_mapper);
+        if (m_mapper->SavMemorySize() > 0)
+            SERIALIZE_BUFFER(m_savBanks.data(), m_mapper->SavMemorySize());
+        
+        serializer.SerializeObject(*m_mapper);
+    }
 }
 
 RomHeader Cartridge::LoadRom(const char* file)
@@ -117,6 +121,9 @@ RomHeader Cartridge::LoadRom(const char* file)
 
 NameTableMirroring Cartridge::GetNameTableMirroring() const
 {
+    // Proteção contra crash
+    if (!m_mapper) return NameTableMirroring::Horizontal;
+
 	// Some mappers control mirroring, otherwise it's hard-wired on the cart
 	auto result = m_mapper->GetNameTableMirroring();
 	if (result != NameTableMirroring::Undefined)
@@ -128,6 +135,9 @@ NameTableMirroring Cartridge::GetNameTableMirroring() const
 
 uint8 Cartridge::HandleCpuRead(uint16 cpuAddress)
 {
+    // CORREÇÃO: Evita crash se mapper for nulo
+    if (m_mapper == nullptr) return 0;
+
 	if (cpuAddress >= CpuMemory::kPrgRomBase)
 	{
 		return AccessPrgMem(cpuAddress);
@@ -148,6 +158,9 @@ uint8 Cartridge::HandleCpuRead(uint16 cpuAddress)
 
 void Cartridge::HandleCpuWrite(uint16 cpuAddress, uint8 value)
 {
+    // CORREÇÃO: Evita crash se mapper for nulo
+    if (m_mapper == nullptr) return;
+
 	m_mapper->OnCpuWrite(cpuAddress, value);
 
 	if (cpuAddress >= CpuMemory::kPrgRomBase)
@@ -175,11 +188,16 @@ void Cartridge::HandleCpuWrite(uint16 cpuAddress, uint8 value)
 
 uint8 Cartridge::HandlePpuRead(uint16 ppuAddress)
 {
+    // CORREÇÃO: Evita crash
+    if (m_mapper == nullptr) return 0;
 	return AccessChrMem(ppuAddress);
 }
 
 void Cartridge::HandlePpuWrite(uint16 ppuAddress, uint8 value)
 {
+    // CORREÇÃO: Evita crash
+    if (m_mapper == nullptr) return;
+
 	if (m_mapper->CanWriteChrMemory())
 	{
 		AccessChrMem(ppuAddress) = value;
@@ -239,6 +257,8 @@ void Cartridge::LoadSaveRamFile(const char* file)
 
 void Cartridge::HACK_OnScanline()
 {
+    if (!m_mapper) return;
+
 	if (auto* mapper4 = dynamic_cast<Mapper4*>(m_mapper))
 	{
 		mapper4->HACK_OnScanline();
@@ -251,6 +271,7 @@ void Cartridge::HACK_OnScanline()
 
 size_t Cartridge::GetPrgBankIndex16k(uint16 cpuAddress) const
 {
+    if (!m_mapper) return 0;
 	const size_t bankIndex4k = GetBankIndex(cpuAddress, CpuMemory::kPrgRomBase, kPrgBankSize);
 	const size_t mappedBankIndex4k = m_mapper->GetMappedPrgBankIndex(bankIndex4k);
 	return mappedBankIndex4k * KB(4) / KB(16);
@@ -258,6 +279,9 @@ size_t Cartridge::GetPrgBankIndex16k(uint16 cpuAddress) const
 
 uint8& Cartridge::AccessPrgMem(uint16 cpuAddress)
 {
+    // Segurança extra
+    if (!m_mapper) { static uint8 dummy = 0; return dummy; }
+
 	const size_t bankIndex = GetBankIndex(cpuAddress, CpuMemory::kPrgRomBase, kPrgBankSize);
 	const auto offset = GetBankOffset(cpuAddress, kPrgBankSize);
 	const size_t mappedBankIndex = m_mapper->GetMappedPrgBankIndex(bankIndex);
@@ -266,6 +290,9 @@ uint8& Cartridge::AccessPrgMem(uint16 cpuAddress)
 
 uint8& Cartridge::AccessChrMem(uint16 ppuAddress)
 {
+    // Segurança extra
+    if (!m_mapper) { static uint8 dummy = 0; return dummy; }
+
 	const size_t bankIndex = GetBankIndex(ppuAddress, PpuMemory::kChrRomBase, kChrBankSize);
 	const uint16 offset = GetBankOffset(ppuAddress, kChrBankSize);
 	const size_t mappedBankIndex = m_mapper->GetMappedChrBankIndex(bankIndex);
@@ -274,6 +301,9 @@ uint8& Cartridge::AccessChrMem(uint16 ppuAddress)
 
 uint8& Cartridge::AccessSavMem(uint16 cpuAddress)
 {
+    // Segurança extra
+    if (!m_mapper) { static uint8 dummy = 0; return dummy; }
+
 	const size_t bankIndex = GetBankIndex(cpuAddress, CpuMemory::kSaveRamBase, kSavBankSize);
 	const uint16 offset = GetBankOffset(cpuAddress, kSavBankSize);
 	const size_t mappedBankIndex = m_mapper->GetMappedSavBankIndex(bankIndex);
