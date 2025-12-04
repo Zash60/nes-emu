@@ -1,11 +1,11 @@
 cmake_minimum_required(VERSION 3.4.1)
 
-# Define onde estão os fontes
+# Define onde estão os fontes do core e do android
 file(GLOB CORE_SRC "core/*.cpp")
 file(GLOB ANDROID_SRC "android/*.cpp")
 
-# Adiciona a pasta 'include' (onde criamos os fakes) ao path do compilador
-include_directories(include)
+# --- CORREÇÃO: Adiciona a pasta 'include' ao caminho de busca ---
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 add_library(nes-emu SHARED ${CORE_SRC} ${ANDROID_SRC})
 
