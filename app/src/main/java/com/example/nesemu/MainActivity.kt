@@ -12,8 +12,6 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import kotlinx.coroutines.*
-import java.io.File
-import java.io.FileOutputStream
 
 class MainActivity : AppCompatActivity() {
 
@@ -25,9 +23,7 @@ class MainActivity : AppCompatActivity() {
     private var isRomLoaded = false
 
     private val selectRomLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
-        uri?.let {
-            loadRomFromUri(it)
-        }
+        uri?.let { loadRomFromUri(it) }
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -43,7 +39,7 @@ class MainActivity : AppCompatActivity() {
         setupButtons()
 
         findViewById<Button>(R.id.btnSelectRom).setOnClickListener {
-            selectRomLauncher.launch(arrayOf("*/*")) 
+            selectRomLauncher.launch(arrayOf("*/*"))
         }
 
         isRunning = true
@@ -64,23 +60,22 @@ class MainActivity : AppCompatActivity() {
 
     private fun loadRomFromUri(uri: Uri) {
         try {
+            // LER BYTES DIRETAMENTE (Funciona em todas as versões do Android)
             val inputStream = contentResolver.openInputStream(uri)
-            val fileName = "game.nes"
-            val cacheFile = File(cacheDir, fileName)
-
-            inputStream?.use { input ->
-                FileOutputStream(cacheFile).use { output ->
-                    input.copyTo(output)
-                }
+            val bytes = inputStream?.readBytes()
+            
+            if (bytes != null && bytes.isNotEmpty()) {
+                emulator.loadRom(bytes)
+                isRomLoaded = true
+                Toast.makeText(this, "ROM Carregada! (${bytes.size} bytes)", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this, "Erro: Arquivo vazio", Toast.LENGTH_SHORT).show()
             }
-
-            emulator.loadRom(cacheFile.absolutePath)
-            isRomLoaded = true
-            Toast.makeText(this, "ROM loaded!", Toast.LENGTH_SHORT).show()
+            inputStream?.close()
 
         } catch (e: Exception) {
             e.printStackTrace()
-            Toast.makeText(this, "Failed to load ROM", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Erro ao ler arquivo: ${e.message}", Toast.LENGTH_LONG).show()
         }
     }
 
