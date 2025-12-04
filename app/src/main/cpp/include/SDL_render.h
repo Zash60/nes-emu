@@ -1,0 +1,22 @@
+#pragma once
+
+typedef enum {
+    SDL_SCANCODE_UNKNOWN = 0,
+    SDL_SCANCODE_A = 4,
+    SDL_SCANCODE_B = 5, // Not standard SDL, but placeholder
+    SDL_SCANCODE_S = 22,
+    SDL_SCANCODE_RETURN = 40,
+    SDL_SCANCODE_TAB = 43,
+    SDL_SCANCODE_RIGHT = 79,
+    SDL_SCANCODE_LEFT = 80,
+    SDL_SCANCODE_DOWN = 81,
+    SDL_SCANCODE_UP = 82,
+    SDL_SCANCODE_LCTRL = 224,
+    SDL_SCANCODE_LSHIFT = 225,
+    SDL_SCANCODE_LALT = 226, 
+    SDL_SCANCODE_RCTRL = 228,
+    SDL_SCANCODE_RSHIFT = 229,
+    SDL_SCANCODE_RALT = 230,
+    // Adicione outros se o compilador reclamar
+    SDL_NUM_SCANCODES = 512
+} SDL_Scancode;
