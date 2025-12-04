@@ -27,22 +27,22 @@ Java_com_example_nesemu_NesEmulator_init(JNIEnv* env, jobject /*this*/) {
     g_isRomLoaded = false;
 }
 
+// CORREÇÃO CRÍTICA: Recebe jbyteArray em vez de jstring
 extern "C" JNIEXPORT void JNICALL
-Java_com_example_nesemu_NesEmulator_loadRom(JNIEnv* env, jobject /*this*/, jstring filePath) {
+Java_com_example_nesemu_NesEmulator_loadRom(JNIEnv* env, jobject /*this*/, jbyteArray romData) {
     if (!g_nes) return;
-    const char* path = env->GetStringUTFChars(filePath, 0);
     
-    // Attempt to load. C++ FAIL macro throws exceptions, so JNI will crash if file not found
-    // without exception handling. But Cartridge.cpp logs error now.
-    try {
-        g_nes->LoadRom(path);
-        g_nes->Reset();
-        g_isRomLoaded = true;
-    } catch (...) {
-        g_isRomLoaded = false;
-    }
+    jsize len = env->GetArrayLength(romData);
+    jbyte* body = env->GetByteArrayElements(romData, 0);
     
-    env->ReleaseStringUTFChars(filePath, path);
+    // Carrega da memória
+    g_nes->LoadRomFromMemory((uint8_t*)body, (size_t)len);
+    g_nes->Reset();
+    
+    // Libera o buffer Java
+    env->ReleaseByteArrayElements(romData, body, 0);
+    
+    g_isRomLoaded = true;
 }
 
 extern "C" JNIEXPORT void JNICALL
