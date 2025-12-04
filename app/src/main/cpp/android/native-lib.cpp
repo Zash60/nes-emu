@@ -5,7 +5,6 @@
 #include "../core/Nes.h"
 #include "../core/System.h"
 
-// SDL Scancodes manuais para mapear input
 #define SCANCODE_A 4
 #define SCANCODE_B 22
 #define SCANCODE_UP 82
@@ -19,7 +18,7 @@ extern const uint32_t* GetRawPixelBuffer();
 extern void SetKeyState(int scancode, bool pressed);
 
 static std::unique_ptr<Nes> g_nes;
-static bool g_isRomLoaded = false; // Flag de segurança
+static bool g_isRomLoaded = false;
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_example_nesemu_NesEmulator_init(JNIEnv* env, jobject /*this*/) {
@@ -33,19 +32,21 @@ Java_com_example_nesemu_NesEmulator_loadRom(JNIEnv* env, jobject /*this*/, jstri
     if (!g_nes) return;
     const char* path = env->GetStringUTFChars(filePath, 0);
     
-    // Tenta carregar a ROM
-    g_nes->LoadRom(path);
-    g_nes->Reset();
-    
-    // Assume sucesso se chegou até aqui sem exceção C++
-    g_isRomLoaded = true;
+    // Attempt to load. C++ FAIL macro throws exceptions, so JNI will crash if file not found
+    // without exception handling. But Cartridge.cpp logs error now.
+    try {
+        g_nes->LoadRom(path);
+        g_nes->Reset();
+        g_isRomLoaded = true;
+    } catch (...) {
+        g_isRomLoaded = false;
+    }
     
     env->ReleaseStringUTFChars(filePath, path);
 }
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_example_nesemu_NesEmulator_runFrame(JNIEnv* env, jobject /*this*/, jobject bitmap, jboolean rewind) {
-    // Só roda se emulador existe e ROM foi carregada
     if (!g_nes || !g_isRomLoaded) return;
 
     g_nes->RewindSaveStates(rewind);
@@ -55,7 +56,6 @@ Java_com_example_nesemu_NesEmulator_runFrame(JNIEnv* env, jobject /*this*/, jobj
     if (AndroidBitmap_lockPixels(env, bitmap, &bitmapPixels) < 0) return;
 
     const uint32_t* src = GetRawPixelBuffer();
-    // NES 256x240
     memcpy(bitmapPixels, src, 256 * 240 * 4);
 
     AndroidBitmap_unlockPixels(env, bitmap);
