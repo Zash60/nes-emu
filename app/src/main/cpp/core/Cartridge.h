@@ -5,6 +5,7 @@
 #include "Mapper.h"
 #include <memory>
 #include <string>
+#include <vector> // Necessário
 
 class Nes;
 
@@ -14,7 +15,11 @@ public:
 	void Initialize(Nes& nes);
 	void Serialize(class Serializer& serializer);
 	
+	// Mantemos a versão antiga por compatibilidade, mas adicionamos a nova
 	RomHeader LoadRom(const char* file);
+	// NOVA FUNÇÃO: Carrega da memória
+	RomHeader LoadRomFromMemory(const uint8* data, size_t size);
+
 	bool IsRomLoaded() const { return m_mapper != nullptr; }
 
 	NameTableMirroring GetNameTableMirroring() const;
@@ -24,12 +29,10 @@ public:
 	uint8 HandlePpuRead(uint16 ppuAddress);
 	void HandlePpuWrite(uint16 ppuAddress, uint8 value);
 
-	//@TODO: Rename to SerializeSaveRam to mimic SerializeSaveState
 	void WriteSaveRamFile(const char* file);
 	void LoadSaveRamFile(const char* file);
 
 	void HACK_OnScanline();
-	
 	size_t GetPrgBankIndex16k(uint16 cpuAddress) const;
 	
 private:
@@ -44,7 +47,6 @@ private:
 	NameTableMirroring m_cartNameTableMirroring;
 	bool m_hasSRAM;
 
-	// Set arbitrarily large max number of banks
 	static const size_t kMaxPrgBanks = 128;
 	static const size_t kMaxChrBanks = 256;
 	static const size_t kMaxSavBanks = 4;
