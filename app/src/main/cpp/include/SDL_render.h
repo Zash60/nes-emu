@@ -1,22 +1,36 @@
 #pragma once
+#include <stdint.h>
 
-typedef enum {
-    SDL_SCANCODE_UNKNOWN = 0,
-    SDL_SCANCODE_A = 4,
-    SDL_SCANCODE_B = 5, // Not standard SDL, but placeholder
-    SDL_SCANCODE_S = 22,
-    SDL_SCANCODE_RETURN = 40,
-    SDL_SCANCODE_TAB = 43,
-    SDL_SCANCODE_RIGHT = 79,
-    SDL_SCANCODE_LEFT = 80,
-    SDL_SCANCODE_DOWN = 81,
-    SDL_SCANCODE_UP = 82,
-    SDL_SCANCODE_LCTRL = 224,
-    SDL_SCANCODE_LSHIFT = 225,
-    SDL_SCANCODE_LALT = 226, 
-    SDL_SCANCODE_RCTRL = 228,
-    SDL_SCANCODE_RSHIFT = 229,
-    SDL_SCANCODE_RALT = 230,
-    // Adicione outros se o compilador reclamar
-    SDL_NUM_SCANCODES = 512
-} SDL_Scancode;
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+// Definição de tipos básicos do SDL necessários
+typedef uint8_t Uint8;
+
+// Estrutura SDL_Rect (ESSENCIAL para corrigir o erro 'unknown type name')
+typedef struct SDL_Rect {
+    int x, y;
+    int w, h;
+} SDL_Rect;
+
+// Estrutura opaca para o Renderer
+typedef struct SDL_Renderer SDL_Renderer;
+
+// Funções Dummy (Stubs) para enganar o compilador
+// static inline para não dar erro de definição duplicada no linker
+static inline int SDL_SetRenderDrawColor(SDL_Renderer * renderer, Uint8 r, Uint8 g, Uint8 b, Uint8 a) {
+    return 0;
+}
+
+static inline int SDL_RenderFillRect(SDL_Renderer * renderer, const SDL_Rect * rect) {
+    return 0;
+}
+
+// Outras funções que podem ser chamadas
+static inline void SDL_RenderPresent(SDL_Renderer * renderer) {}
+static inline void SDL_RenderCopy(SDL_Renderer * renderer, void * texture, const SDL_Rect * srcrect, const SDL_Rect * dstrect) {}
+
+#ifdef __cplusplus
+}
+#endif
