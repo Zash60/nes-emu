@@ -18,20 +18,21 @@ jobs:
       with:
         java-version: '17'
         distribution: 'temurin'
-        cache: gradle
 
     - name: Setup Android SDK
       uses: android-actions/setup-android@v3
 
-    # Como o script anterior criou as pastas mas talvez não o 'gradle-wrapper.jar',
-    # garantimos que o wrapper exista usando o Gradle do próprio runner.
-    - name: Ensure Gradle Wrapper
-      run: |
-        gradle wrapper --gradle-version 8.4
-        chmod +x gradlew
+    # CORREÇÃO: Usamos a action oficial do Gradle para instalar a versão 8.5.
+    # Isso evita o uso do Gradle 9.2.1 que está quebrando o build.
+    - name: Setup Gradle 8.5
+      uses: gradle/actions/setup-gradle@v3
+      with:
+        gradle-version: 8.5
 
+    # Como instalamos o Gradle 8.5 acima, usamos o comando 'gradle' direto
+    # em vez de tentar gerar e rodar o './gradlew' que estava falhando.
     - name: Build Debug APK
-      run: ./gradlew assembleDebug --stacktrace
+      run: gradle assembleDebug --stacktrace --no-daemon
 
     - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
