@@ -5,94 +5,43 @@
     android:layout_height="match_parent"
     android:background="#000000">
 
-    <!-- Tela do Emulador -->
+    <!-- CORREÇÃO AQUI: scaleType="fitCenter" para aumentar a tela -->
     <ImageView
         android:id="@+id/sv"
         android:layout_width="0dp"
         android:layout_height="0dp"
+        android:scaleType="fitCenter"
         app:layout_constraintDimensionRatio="4:3"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintBottom_toTopOf="@+id/ctl" />
 
-    <!-- Área de Controles -->
     <androidx.constraintlayout.widget.ConstraintLayout
         android:id="@+id/ctl"
         android:layout_width="match_parent"
         android:layout_height="200dp"
         app:layout_constraintBottom_toBottomOf="parent">
 
-        <!-- D-PAD -->
-        <!-- Usamos &lt; e &gt; para evitar erro de parser XML -->
-        <Button android:id="@+id/bu" android:text="^"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toTopOf="parent"
-            android:layout_marginStart="60dp" android:layout_marginTop="20dp"
-            android:layout_width="50dp" android:layout_height="50dp"/>
-
-        <Button android:id="@+id/bd" android:text="v"
-            app:layout_constraintStart_toStartOf="@id/bu"
-            app:layout_constraintTop_toBottomOf="@id/bu"
-            android:layout_marginTop="50dp"
-            android:layout_width="50dp" android:layout_height="50dp"/>
-
-        <Button android:id="@+id/bl" android:text="&lt;"
-            app:layout_constraintEnd_toStartOf="@id/bu"
-            app:layout_constraintTop_toBottomOf="@id/bu"
-            android:layout_width="50dp" android:layout_height="50dp"/>
-
-        <Button android:id="@+id/br" android:text="&gt;"
-            app:layout_constraintStart_toEndOf="@id/bu"
-            app:layout_constraintTop_toBottomOf="@id/bu"
-            android:layout_width="50dp" android:layout_height="50dp"/>
-
-        <!-- Botões de Ação -->
-        <Button android:id="@+id/bb" android:text="B"
-            app:layout_constraintEnd_toStartOf="@+id/ba"
-            app:layout_constraintBottom_toBottomOf="parent"
-            android:layout_marginBottom="40dp" android:layout_marginEnd="20dp"
-            android:layout_width="60dp" android:layout_height="60dp"/>
-
-        <Button android:id="@+id/ba" android:text="A"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintBottom_toBottomOf="parent"
-            android:layout_marginBottom="60dp" android:layout_marginEnd="30dp"
-            android:layout_width="60dp" android:layout_height="60dp"/>
-
-        <!-- Start / Select -->
-        <Button android:id="@+id/bsel" android:text="SL"
-            app:layout_constraintStart_toEndOf="@id/br"
-            app:layout_constraintBottom_toBottomOf="parent"
-            android:layout_marginBottom="10dp"
-            android:layout_width="60dp" android:layout_height="40dp"/>
-
-        <Button android:id="@+id/bstr" android:text="ST"
-            app:layout_constraintStart_toEndOf="@id/bsel"
-            app:layout_constraintBottom_toBottomOf="parent"
-            android:layout_marginBottom="10dp"
-            android:layout_width="60dp" android:layout_height="40dp"/>
-
+        <Button android:id="@+id/bu" android:text="^" app:layout_constraintStart_toStartOf="parent" app:layout_constraintTop_toTopOf="parent" android:layout_marginStart="60dp" android:layout_marginTop="20dp" android:layout_width="50dp" android:layout_height="50dp"/>
+        <Button android:id="@+id/bd" android:text="v" app:layout_constraintStart_toStartOf="@id/bu" app:layout_constraintTop_toBottomOf="@id/bu" android:layout_marginTop="50dp" android:layout_width="50dp" android:layout_height="50dp"/>
+        <Button android:id="@+id/bl" android:text="&lt;" app:layout_constraintEnd_toStartOf="@id/bu" app:layout_constraintTop_toBottomOf="@id/bu" android:layout_width="50dp" android:layout_height="50dp"/>
+        <Button android:id="@+id/br" android:text="&gt;" app:layout_constraintStart_toEndOf="@id/bu" app:layout_constraintTop_toBottomOf="@id/bu" android:layout_width="50dp" android:layout_height="50dp"/>
+        <Button android:id="@+id/bb" android:text="B" app:layout_constraintEnd_toStartOf="@+id/ba" app:layout_constraintBottom_toBottomOf="parent" android:layout_marginBottom="40dp" android:layout_marginEnd="20dp" android:layout_width="60dp" android:layout_height="60dp"/>
+        <Button android:id="@+id/ba" android:text="A" app:layout_constraintEnd_toEndOf="parent" app:layout_constraintBottom_toBottomOf="parent" android:layout_marginBottom="60dp" android:layout_marginEnd="30dp" android:layout_width="60dp" android:layout_height="60dp"/>
+        <Button android:id="@+id/bsel" android:text="SL" app:layout_constraintStart_toEndOf="@id/br" app:layout_constraintBottom_toBottomOf="parent" android:layout_marginBottom="10dp" android:layout_width="60dp" android:layout_height="40dp"/>
+        <Button android:id="@+id/bstr" android:text="ST" app:layout_constraintStart_toEndOf="@id/bsel" app:layout_constraintBottom_toBottomOf="parent" android:layout_marginBottom="10dp" android:layout_width="60dp" android:layout_height="40dp"/>
     </androidx.constraintlayout.widget.ConstraintLayout>
 
-    <!-- Menu Superior -->
     <LinearLayout
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         android:orientation="horizontal">
-
-        <!-- Botão Selecionar ROM -->
-        <Button android:id="@+id/btnSelectRom" android:text="ROM"
-            android:layout_width="wrap_content" android:layout_height="wrap_content"/>
-
-        <Button android:id="@+id/brew" android:text="REW"
-            android:layout_width="wrap_content" android:layout_height="wrap_content"/>
-        <Button android:id="@+id/bsave" android:text="SAV"
-            android:layout_width="wrap_content" android:layout_height="wrap_content"/>
-        <Button android:id="@+id/bload" android:text="LOD"
-            android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+        <Button android:id="@+id/btnSelectRom" android:text="ROM" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+        <Button android:id="@+id/brew" android:text="REW" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+        <Button android:id="@+id/bsave" android:text="SAV" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+        <Button android:id="@+id/bload" android:text="LOD" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
     </LinearLayout>
-
 </androidx.constraintlayout.widget.ConstraintLayout>
