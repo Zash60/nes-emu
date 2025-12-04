@@ -5,18 +5,18 @@
     android:layout_height="match_parent"
     android:background="#000000">
 
-    <!-- Tela do emulador -->
+    <!-- Tela do Emulador -->
     <ImageView
         android:id="@+id/sv"
         android:layout_width="0dp"
         android:layout_height="0dp"
         app:layout_constraintDimensionRatio="4:3"
         app:layout_constraintTop_toTopOf="parent"
-        app:layout_constraintBottom_toTopOf="@+id/ctl"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"/>
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintBottom_toTopOf="@+id/ctl" />
 
-    <!-- Controles -->
+    <!-- Área de Controles -->
     <androidx.constraintlayout.widget.ConstraintLayout
         android:id="@+id/ctl"
         android:layout_width="match_parent"
@@ -24,7 +24,7 @@
         app:layout_constraintBottom_toBottomOf="parent">
 
         <!-- D-PAD -->
-        <!-- NOTA: Usamos &lt; para < e &gt; para > -->
+        <!-- Usamos &lt; e &gt; para evitar erro de parser XML -->
         <Button android:id="@+id/bu" android:text="^"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toTopOf="parent"
@@ -82,6 +82,10 @@
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         android:orientation="horizontal">
+
+        <!-- Botão Selecionar ROM -->
+        <Button android:id="@+id/btnSelectRom" android:text="ROM"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"/>
 
         <Button android:id="@+id/brew" android:text="REW"
             android:layout_width="wrap_content" android:layout_height="wrap_content"/>
