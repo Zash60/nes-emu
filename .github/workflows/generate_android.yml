@@ -1,0 +1,333 @@
+name: Generate Android Structure (No Build)
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+# Permissões necessárias para fazer o push de volta ao repositório
+permissions:
+  contents: write
+
+jobs:
+  generate-and-push:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    # ---------------------------------------------------------
+    # 1. CRIAR ESTRUTURA DE DIRETÓRIOS
+    # ---------------------------------------------------------
+    - name: Create Project Structure
+      run: |
+        echo "Criando pastas..."
+        mkdir -p app/src/main/cpp/core
+        mkdir -p app/src/main/cpp/android
+        mkdir -p app/src/main/java/com/example/nesemu
+        mkdir -p app/src/main/res/layout
+        mkdir -p app/src/main/res/values
+        mkdir -p gradle/wrapper
+
+    # ---------------------------------------------------------
+    # 2. CONFIGURAR GRADLE E MANIFESTO
+    # ---------------------------------------------------------
+    - name: Create Configuration Files
+      run: |
+        echo "Gerando build.gradle (Root)..."
+        cat <<EOF > build.gradle
+        buildscript {
+            repositories { google(); mavenCentral() }
+            dependencies {
+                classpath 'com.android.tools.build:gradle:8.2.0'
+                classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.20"
+            }
+        }
+        allprojects { repositories { google(); mavenCentral() } }
+        task clean(type: Delete) { delete rootProject.buildDir }
+        EOF
+
+        echo "Gerando settings.gradle..."
+        cat <<EOF > settings.gradle
+        include ':app'
+        EOF
+
+        echo "Gerando app/build.gradle..."
+        cat <<EOF > app/build.gradle
+        plugins {
+            id 'com.android.application'
+            id 'kotlin-android'
+        }
+        android {
+            namespace 'com.example.nesemu'
+            compileSdk 34
+            defaultConfig {
+                applicationId "com.example.nesemu"
+                minSdk 24
+                targetSdk 34
+                versionCode 1
+                versionName "1.0"
+                externalNativeBuild {
+                    cmake {
+                        cppFlags "-std=c++11"
+                        arguments "-DANDROID_STL=c++_shared"
+                    }
+                }
+            }
+            externalNativeBuild { cmake { path "src/main/cpp/CMakeLists.txt" } }
+            compileOptions { sourceCompatibility JavaVersion.VERSION_1_8; targetCompatibility JavaVersion.VERSION_1_8 }
+            kotlinOptions { jvmTarget = '1.8' }
+        }
+        dependencies {
+            implementation 'androidx.core:core-ktx:1.12.0'
+            implementation 'androidx.appcompat:appcompat:1.6.1'
+            implementation 'com.google.android.material:material:1.11.0'
+            implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+        }
+        EOF
+
+        echo "Gerando AndroidManifest.xml..."
+        cat <<EOF > app/src/main/AndroidManifest.xml
+        <?xml version="1.0" encoding="utf-8"?>
+        <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+            <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+            <application
+                android:allowBackup="true"
+                android:icon="@mipmap/ic_launcher"
+                android:label="NES Emu"
+                android:supportsRtl="true"
+                android:theme="@style/Theme.AppCompat.NoActionBar">
+                <activity
+                    android:name=".MainActivity"
+                    android:exported="true"
+                    android:screenOrientation="landscape"
+                    android:configChanges="orientation|screenSize|keyboardHidden">
+                    <intent-filter>
+                        <action android:name="android.intent.action.MAIN" />
+                        <category android:name="android.intent.category.LAUNCHER" />
+                    </intent-filter>
+                </activity>
+            </application>
+        </manifest>
+        EOF
+
+    # ---------------------------------------------------------
+    # 3. ADAPTADORES C++ (SUBSTITUIÇÃO DO SDL)
+    # ---------------------------------------------------------
+    - name: Setup C++ Source and Adapters
+      run: |
+        echo "Copiando core original..."
+        # Copia tudo da pasta src original para a pasta do android
+        cp src/*.cpp app/src/main/cpp/core/ || true
+        cp src/*.h app/src/main/cpp/core/ || true
+        
+        echo "Removendo arquivos incompatíveis com Android..."
+        rm -f app/src/main/cpp/core/main.cpp
+        rm -f app/src/main/cpp/core/Renderer.cpp
+        rm -f app/src/main/cpp/core/Input.cpp
+        rm -f app/src/main/cpp/core/AudioDriver.cpp
+
+        echo "Gerando Renderer_Android.cpp..."
+        cat <<EOF > app/src/main/cpp/android/Renderer_Android.cpp
+        #include "../core/Renderer.h"
+        #include <vector>
+        #include <algorithm>
+        std::vector<uint32_t> g_pixelBuffer;
+        int g_width = 256, g_height = 240;
+        struct Renderer::PIMPL {}; 
+        Renderer::Renderer() : m_impl(nullptr) {}
+        Renderer::~Renderer() {}
+        void Renderer::SetWindowTitle(const char* title) {}
+        void Renderer::Create(size_t w, size_t h) { g_width=w; g_height=h; g_pixelBuffer.resize(w*h); }
+        void Renderer::Destroy() { g_pixelBuffer.clear(); }
+        void Renderer::Clear(const Color4& color) { std::fill(g_pixelBuffer.begin(), g_pixelBuffer.end(), color.argb); }
+        void Renderer::DrawPixel(int32 x, int32 y, const Color4& color) { if(x>=0 && x<g_width && y>=0 && y<g_height) g_pixelBuffer[y*g_width+x] = color.argb; }
+        void Renderer::Present() {} 
+        const uint32_t* GetRawPixelBuffer() { return g_pixelBuffer.data(); }
+        EOF
+
+        echo "Gerando Input_Android.cpp..."
+        cat <<EOF > app/src/main/cpp/android/Input_Android.cpp
+        #include "../core/Input.h"
+        bool g_keys[512] = {false}; 
+        namespace Input {
+            void Update() {}
+            bool KeyDown(SDL_Scancode c) { return (c>=0 && c<512) ? g_keys[c] : false; }
+            bool KeyUp(SDL_Scancode c) { return !KeyDown(c); }
+            bool KeyPressed(SDL_Scancode c) { return KeyDown(c); }
+            bool KeyReleased(SDL_Scancode c) { return KeyUp(c); }
+            bool AltDown() { return false; } bool CtrlDown() { return false; } bool ShiftDown() { return false; }
+            const char* GetScancodeName(SDL_Scancode c) { return "Key"; }
+        }
+        void SetKeyState(int scancode, bool pressed) { if(scancode>=0 && scancode<512) g_keys[scancode] = pressed; }
+        EOF
+
+        echo "Gerando AudioDriver_Android.cpp (Stub)..."
+        cat <<EOF > app/src/main/cpp/android/AudioDriver_Android.cpp
+        #include "../core/AudioDriver.h"
+        class AudioDriver::AudioDriverImpl { public: void Initialize(){} void Shutdown(){} size_t GetSampleRate()const{return 44100;} float32 GetBufferUsageRatio()const{return 0;} void AddSampleF32(float32 s){} };
+        AudioDriver::AudioDriver() : m_impl(new AudioDriverImpl) {}
+        AudioDriver::~AudioDriver() { delete m_impl; }
+        void AudioDriver::Initialize() { m_impl->Initialize(); }
+        void AudioDriver::Shutdown() { m_impl->Shutdown(); }
+        size_t AudioDriver::GetSampleRate() const { return m_impl->GetSampleRate(); }
+        float32 AudioDriver::GetBufferUsageRatio() const { return m_impl->GetBufferUsageRatio(); }
+        void AudioDriver::AddSampleF32(float32 sample) { m_impl->AddSampleF32(sample); }
+        EOF
+
+        echo "Gerando native-lib.cpp (JNI Bridge)..."
+        cat <<EOF > app/src/main/cpp/android/native-lib.cpp
+        #include <jni.h>
+        #include <string>
+        #include <android/bitmap.h>
+        #include "../core/Nes.h"
+        extern const uint32_t* GetRawPixelBuffer();
+        extern void SetKeyState(int scancode, bool pressed);
+        static std::unique_ptr<Nes> g_nes;
+        extern "C" JNIEXPORT void JNICALL Java_com_example_nesemu_NesEmulator_init(JNIEnv* env, jobject) { g_nes.reset(new Nes()); g_nes->Initialize(); }
+        extern "C" JNIEXPORT void JNICALL Java_com_example_nesemu_NesEmulator_loadRom(JNIEnv* env, jobject, jstring p) { if(!g_nes)return; const char* c=env->GetStringUTFChars(p,0); g_nes->LoadRom(c); g_nes->Reset(); env->ReleaseStringUTFChars(p,c); }
+        extern "C" JNIEXPORT void JNICALL Java_com_example_nesemu_NesEmulator_runFrame(JNIEnv* env, jobject, jobject bmp, jboolean rew) {
+            if(!g_nes)return; g_nes->RewindSaveStates(rew); g_nes->ExecuteFrame(false);
+            void* px; if(AndroidBitmap_lockPixels(env,bmp,&px)<0)return;
+            memcpy(px, GetRawPixelBuffer(), 256*240*4); AndroidBitmap_unlockPixels(env,bmp);
+        }
+        extern "C" JNIEXPORT void JNICALL Java_com_example_nesemu_NesEmulator_setButtonState(JNIEnv* env, jobject, jint id, jboolean p) {
+            int map[] = {4,22,43,40,82,81,80,79}; // A,B,Sel,Str,Up,Dn,L,R
+            if(id>=0 && id<8) SetKeyState(map[id], p);
+        }
+        extern "C" JNIEXPORT void JNICALL Java_com_example_nesemu_NesEmulator_saveState(JNIEnv* env, jobject, jboolean s) { if(g_nes)g_nes->SerializeSaveState(s); }
+        EOF
+
+        echo "Gerando CMakeLists.txt..."
+        cat <<EOF > app/src/main/cpp/CMakeLists.txt
+        cmake_minimum_required(VERSION 3.4.1)
+        file(GLOB CORE_SRC "core/*.cpp")
+        file(GLOB ANDROID_SRC "android/*.cpp")
+        add_library(nes-emu SHARED \${CORE_SRC} \${ANDROID_SRC})
+        find_library(log-lib log)
+        find_library(android-lib android)
+        find_library(jnigraphics-lib jnigraphics)
+        target_link_libraries(nes-emu \${log-lib} \${android-lib} \${jnigraphics-lib})
+        EOF
+
+    # ---------------------------------------------------------
+    # 4. CÓDIGO KOTLIN E UI
+    # ---------------------------------------------------------
+    - name: Generate UI Files
+      run: |
+        echo "Gerando NesEmulator.kt..."
+        cat <<EOF > app/src/main/java/com/example/nesemu/NesEmulator.kt
+        package com.example.nesemu
+        import android.graphics.Bitmap
+        class NesEmulator {
+            companion object { init { System.loadLibrary("nes-emu") } }
+            external fun init()
+            external fun loadRom(path: String)
+            external fun runFrame(bitmap: Bitmap, rewind: Boolean)
+            external fun setButtonState(buttonId: Int, pressed: Boolean)
+            external fun saveState(save: Boolean)
+        }
+        EOF
+
+        echo "Gerando MainActivity.kt..."
+        cat <<EOF > app/src/main/java/com/example/nesemu/MainActivity.kt
+        package com.example.nesemu
+        import android.annotation.SuppressLint
+        import android.graphics.Bitmap
+        import android.os.Bundle
+        import android.view.MotionEvent
+        import android.view.View
+        import android.widget.Button
+        import android.widget.ImageView
+        import androidx.appcompat.app.AppCompatActivity
+        import kotlinx.coroutines.*
+        import java.io.File
+        class MainActivity : AppCompatActivity() {
+            private val emu = NesEmulator()
+            private lateinit var bmp: Bitmap
+            private var run = false
+            private var rew = false
+            @SuppressLint("ClickableViewAccessibility")
+            override fun onCreate(b: Bundle?) {
+                super.onCreate(b)
+                setContentView(R.layout.activity_main)
+                val img = findViewById<ImageView>(R.id.sv)
+                bmp = Bitmap.createBitmap(256, 240, Bitmap.Config.ARGB_8888)
+                img.setImageBitmap(bmp)
+                emu.init()
+                // Copia dummy rom se necessario e carrega
+                val f = File(cacheDir, "game.nes")
+                if(f.exists()) emu.loadRom(f.absolutePath)
+                
+                setupBtns()
+                run = true
+                CoroutineScope(Dispatchers.Default).launch {
+                    while(run) {
+                        val t = System.currentTimeMillis()
+                        emu.runFrame(bmp, rew)
+                        withContext(Dispatchers.Main){ img.invalidate() }
+                        val w = 16 - (System.currentTimeMillis()-t)
+                        if(w>0) delay(w)
+                    }
+                }
+            }
+            @SuppressLint("ClickableViewAccessibility")
+            fun setupBtns() {
+                val ids = listOf(R.id.ba, R.id.bb, R.id.bsel, R.id.bstr, R.id.bu, R.id.bd, R.id.bl, R.id.br)
+                for((i, id) in ids.withIndex()) {
+                    findViewById<View>(id).setOnTouchListener { _, e ->
+                        if(e.action==MotionEvent.ACTION_DOWN) emu.setButtonState(i, true)
+                        else if(e.action==MotionEvent.ACTION_UP) emu.setButtonState(i, false)
+                        true
+                    }
+                }
+                findViewById<Button>(R.id.brew).setOnTouchListener { _, e -> rew = (e.action==MotionEvent.ACTION_DOWN); true }
+                findViewById<Button>(R.id.bsave).setOnClickListener { emu.saveState(true) }
+                findViewById<Button>(R.id.bload).setOnClickListener { emu.saveState(false) }
+            }
+        }
+        EOF
+
+        echo "Gerando Layout XML..."
+        cat <<EOF > app/src/main/res/layout/activity_main.xml
+        <?xml version="1.0" encoding="utf-8"?>
+        <androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto"
+            android:layout_width="match_parent" android:layout_height="match_parent" android:background="#000">
+            <ImageView android:id="@+id/sv" android:layout_width="0dp" android:layout_height="0dp" app:layout_constraintDimensionRatio="4:3" app:layout_constraintTop_toTopOf="parent" app:layout_constraintBottom_toTopOf="@+id/ctl" app:layout_constraintStart_toStartOf="parent" app:layout_constraintEnd_toEndOf="parent"/>
+            <androidx.constraintlayout.widget.ConstraintLayout android:id="@+id/ctl" android:layout_width="match_parent" android:layout_height="200dp" app:layout_constraintBottom_toBottomOf="parent">
+                <Button android:id="@+id/bu" android:text="^" app:layout_constraintStart_toStartOf="parent" app:layout_constraintTop_toTopOf="parent" android:layout_marginStart="60dp" android:layout_width="50dp" android:layout_height="50dp"/>
+                <Button android:id="@+id/bd" android:text="v" app:layout_constraintStart_toStartOf="@id/bu" app:layout_constraintTop_toBottomOf="@id/bu" android:layout_marginTop="50dp" android:layout_width="50dp" android:layout_height="50dp"/>
+                <Button android:id="@+id/bl" android:text="<" app:layout_constraintEnd_toStartOf="@id/bu" app:layout_constraintTop_toBottomOf="@id/bu" android:layout_width="50dp" android:layout_height="50dp"/>
+                <Button android:id="@+id/br" android:text=">" app:layout_constraintStart_toEndOf="@id/bu" app:layout_constraintTop_toBottomOf="@id/bu" android:layout_width="50dp" android:layout_height="50dp"/>
+                <Button android:id="@+id/bb" android:text="B" app:layout_constraintEnd_toStartOf="@+id/ba" app:layout_constraintBottom_toBottomOf="parent" android:layout_marginBottom="40dp" android:layout_marginEnd="20dp" android:layout_width="60dp" android:layout_height="60dp"/>
+                <Button android:id="@+id/ba" android:text="A" app:layout_constraintEnd_toEndOf="parent" app:layout_constraintBottom_toBottomOf="parent" android:layout_marginBottom="60dp" android:layout_marginEnd="30dp" android:layout_width="60dp" android:layout_height="60dp"/>
+                <Button android:id="@+id/bsel" android:text="SL" app:layout_constraintStart_toEndOf="@id/br" app:layout_constraintBottom_toBottomOf="parent" android:layout_width="50dp" android:layout_height="40dp"/>
+                <Button android:id="@+id/bstr" android:text="ST" app:layout_constraintStart_toEndOf="@id/bsel" app:layout_constraintBottom_toBottomOf="parent" android:layout_width="50dp" android:layout_height="40dp"/>
+            </androidx.constraintlayout.widget.ConstraintLayout>
+            <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" app:layout_constraintTop_toTopOf="parent" app:layout_constraintEnd_toEndOf="parent">
+                <Button android:id="@+id/brew" android:text="REW" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+                <Button android:id="@+id/bsave" android:text="SAV" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+                <Button android:id="@+id/bload" android:text="LOD" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+            </LinearLayout>
+        </androidx.constraintlayout.widget.ConstraintLayout>
+        EOF
+
+    # ---------------------------------------------------------
+    # 5. COMMIT E PUSH (SEM COMPILAR)
+    # ---------------------------------------------------------
+    - name: Commit and Push Changes
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        
+        # Adiciona os arquivos novos
+        git add .
+        
+        # Verifica se há mudanças antes de commitar
+        if git diff --staged --quiet; then
+          echo "Nenhuma mudança detectada."
+        else
+          git commit -m "Auto-generate Android project structure [skip ci]"
+          git push
+        fi
